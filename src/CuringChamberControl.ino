@@ -94,6 +94,7 @@ DH22Reading readDH22 ();
 void updateState (ControlledValue &variable);
 void getCurrentRuntime (int &days, int &hours, int &minutes, int &seconds);
 void updateAverages (float temp, float humidity);
+void writeDataToLCD (int column, int row, float temp, float humidity);
 void printTime ();
 
 
@@ -220,16 +221,7 @@ void loop()
     
     lcd.setCursor(0,0);
     lcd.print ("Now:  ");
-    lcd.setCursor(6,0);
-    lcd.print (temperature.current);
-    lcd.setCursor(10,0);
-    lcd.print ((char)223);
-    lcd.setCursor(11,0);
-    lcd.print ("C ");
-    lcd.setCursor (13,0);
-    lcd.print (humidity.current);
-    lcd.setCursor (15,0);
-    lcd.print ("%      ");
+    writeDataToLCD (6, 0, temperature.current, humidity.current);
 
     lcd.setCursor(0,1);
     switch (_lcdLine) {
@@ -238,43 +230,16 @@ void loop()
           lcd.print ("No averages yet");
         } else {
           lcd.print ("Hour: "); 
-          lcd.setCursor (6,1);
-          lcd.print (_averageTempLastHour);
-          lcd.setCursor (10,1);
-          lcd.print ((char)223);
-          lcd.setCursor(11,1);
-          lcd.print ("C ");
-          lcd.setCursor (13,1);
-          lcd.print (_averageHumidityLastHour);
-          lcd.setCursor(15,1);
-          lcd.write("%");
+          writeDataToLCD (6, 1, _averageTempLastHour, _averageHumidityLastHour);
         }
         break;
       case 1: 
         lcd.print ("Week: "); 
-        lcd.setCursor (6,1);
-        lcd.print (_averageTempLastDay);
-        lcd.setCursor (10,1);
-        lcd.print ((char)223);
-        lcd.setCursor(11,1);
-        lcd.print ("C ");
-        lcd.setCursor (13,1);
-        lcd.print (_averageHumidityLastDay);
-        lcd.setCursor(15,1);
-        lcd.write("%");
+        writeDataToLCD (6, 1, _averageTempLastDay, _averageHumidityLastDay);
         break;
       case 2: 
         lcd.print ("Month:"); 
-        lcd.setCursor (6,1);
-        lcd.print (_averageTempLastMonth);
-        lcd.setCursor (10,1);
-        lcd.print ((char)223);
-        lcd.setCursor(11,1);
-        lcd.print ("C ");
-        lcd.setCursor (13,1);
-        lcd.print (_averageHumidityLastMonth);
-        lcd.setCursor(15,1);
-        lcd.write("%");
+        writeDataToLCD (6, 1, _averageTempLastMonth, _averageHumidityLastMonth);
         break;
     }
     _lcdLine++;
@@ -376,6 +341,27 @@ void printTime ()
   Serial.print ("\t");
   Serial.print (seconds);
   Serial.print ("\t");
+}
+
+
+void writeDataToLCD (int column, int row, float temp, float humidity)
+{
+  // The format is "##.#°C ##%" and takes 10 columns total
+  if (column > 6) {
+    lcd.setCursor (0,row);
+    lcd.write ("!Bad LCD column!");
+  } else {
+    lcd.setCursor (column,row);
+    lcd.print (_averageTempLastMonth);
+    lcd.setCursor (column+4,row);
+    lcd.print ((char)223); // The degree symbol
+    lcd.setCursor(column+5,row);
+    lcd.print ("C ");
+    lcd.setCursor (column+7,row);
+    lcd.print (_averageHumidityLastMonth);
+    lcd.setCursor(column+9,row);
+    lcd.write("%");
+  }
 }
 
 
