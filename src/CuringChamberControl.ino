@@ -1,5 +1,21 @@
 #include <dht.h> // For reading from the DHT22 Temperature/Humidity sensor
 
+// Expected Arduino Uno Pinout (All OUTPUT except pin 8):
+// 0  - None (Rx)
+// 1  - None (Tx)
+// 2  - LCD RS
+// 3  - LCD Enable
+// 4  - LCD d4
+// 5  - LCD d5
+// 6  - LCD d6
+// 7  - LCD d7
+// 8  - DHT22 (input pin)
+// 9  - Refrigerator
+// 10 - Heater
+// 11 - Humidifier
+// 12 - Dehumidifier
+// 13 - None
+
 #define UINT32_MAX uint32_t(-1)
 
 // This is the program:
@@ -7,11 +23,11 @@ float TEMP_TARGET = 15.0;       // degrees C
 float TEMP_TOLERANCE = 1.5;     // degrees C
 float HUMIDITY_TARGET = 65.0;   // RH%
 float HUMIDITY_TOLERANCE = 5.0; // RH%
-uint32_t MAX_SWITCH_RATE = 60000; // Milliseconds (ten minutes)
+uint32_t MAX_SWITCH_RATE = 300; // Seconds (five minutes)
 
 // Set up the sensor
 dht DHT;
-#define DHT22_PIN 2
+#define DHT22_PIN 8
 struct {
   uint32_t total;
   uint32_t ok;
@@ -26,19 +42,26 @@ struct DH22Reading {
   int check;
 };
 
-#define STATE_COOLING 2
-#define STATE_HEATING 3
-#define STATE_DEHUMIDIFYING 4
-#define STATE_HUMIDIFYING 5
-#define STATE_OFF 0
-#define COOLING_PIN 7
-#define HUMIDIFIER_PIN 8
-#define DEHUMIDIFIER_PIN 9
+enum State {
+  NOT_CONTROLLING,
+  CONTROLLING_UP,
+  CONTROLLING_DOWN
+};
+
+struct ControlledValue {
+  float current;
+  float target;
+  float tolerance;
+  int pinToIncrease;
+  int pinToDecrease;
+  uint32_t lastStateChangeTime; // In **seconds**, not milliseconds!
+  State state;
+};
+
+ControlledValue temperature = {0, TEMP_TARGET, TEMP_TOLERANCE, 10, 9, 0, NOT_CONTROLLING };
+ControlledValue humidity = {0, HUMIDITY_TARGET, HUMIDITY_TOLERANCE, 11, 12, 0, NOT_CONTROLLING };
+
 uint32_t _lastCheckTime;
-uint32_t _lastTempStateChangeTime;
-uint32_t _lastHumidityStateChangeTime;
-int _tempState;
-int _humidityState;
 
 unsigned long _numWraparounds; // How many times has the clock wrapped
 unsigned long _runtimeInSeconds; // 4 bytes, so a max of 4,294,967,295 (something like 136 years)
@@ -65,6 +88,7 @@ float _averageCoolingOvershoot;
 
 // Forward declarations
 DH22Reading readDH22 ();
+void updateState (ControlledValue &variable);
 void getCurrentRuntime (int &days, int &hours, int &minutes, int &seconds);
 void updateAverages (float temp, float humidity);
 void printTime ();
@@ -75,10 +99,6 @@ void setup()
     _numWraparounds = 0;
     _runtimeInSeconds = 0;
     _lastCheckTime = 0;
-    _lastTempStateChangeTime = 0;
-    _lastHumidityStateChangeTime = 0;
-    _tempState = STATE_OFF;
-    _humidityState = STATE_OFF;
     
     for (int i = 0; i < 60; ++i) {
       _tempsLastHour[i] = 0;
@@ -106,11 +126,14 @@ void setup()
   _averageHumidityLastMonth = 0;
   _averageCoolingOvershoot = 0.0;
     
-  pinMode(COOLING_PIN, OUTPUT);
-  digitalWrite (COOLING_PIN, LOW);
-    
-  pinMode(DEHUMIDIFIER_PIN, OUTPUT);
-  digitalWrite (DEHUMIDIFIER_PIN, LOW);
+  pinMode(temperature.pinToIncrease, OUTPUT);
+  pinMode(temperature.pinToDecrease, OUTPUT);
+  pinMode(humidity.pinToIncrease, OUTPUT);
+  pinMode(humidity.pinToDecrease, OUTPUT);
+  digitalWrite (temperature.pinToIncrease, LOW);
+  digitalWrite (temperature.pinToDecrease, LOW);
+  digitalWrite (humidity.pinToIncrease, LOW);
+  digitalWrite (humidity.pinToDecrease, LOW);
   
   Serial.begin(115200);
   Serial.println ("\n\tDay\tHour\tMin\tSec\tT\tRH\tCool\tDehum.\tRunning Averages");
@@ -125,14 +148,9 @@ void loop()
   uint32_t timeSinceLastHumidityActuation;
   uint32_t currentTime = millis();
   if (currentTime < _lastCheckTime) {
-    // The time wrapped around, the math is more complex now:
-    timeSinceLastTempActuation = (UINT32_MAX - _lastTempStateChangeTime) + currentTime;
-    timeSinceLastHumidityActuation = (UINT32_MAX - _lastHumidityStateChangeTime) + currentTime;
+    // Happens once every 50 days or so
     _numWraparounds++;
-  } else {
-    timeSinceLastTempActuation = currentTime-_lastTempStateChangeTime;
-    timeSinceLastHumidityActuation = currentTime-_lastHumidityStateChangeTime;
-  }
+  } 
   _lastCheckTime = currentTime;
   _runtimeInSeconds = _numWraparounds * (UINT32_MAX/1000) + (currentTime/1000);
   const uint32_t pollRate = 15000; // Defaults to every fifteen seconds in the normal case
@@ -146,70 +164,16 @@ void loop()
     Serial.print ("\t");
     Serial.print (environmentData.humidity,1);
     Serial.print ("\t");
-    Serial.print (_tempState == STATE_COOLING ? "on":"off");
+    Serial.print (temperature.state == CONTROLLING_DOWN ? "on":"off");
     Serial.print ("\t");
-    Serial.print (_humidityState == STATE_DEHUMIDIFYING ? "on":"off");
+    Serial.print (humidity.state == CONTROLLING_DOWN ? "on":"off");
     Serial.print ("\t");
-    
-    // Temperature check:
-    if (_tempState == STATE_COOLING) {
-      // Do we still need to be cooling?
-      if (environmentData.temp < TEMP_TARGET+_averageCoolingOvershoot) {
-        // Stop the cooling
-        _lastTempStateChangeTime = currentTime;
-        _tempState = STATE_OFF;
-        digitalWrite (COOLING_PIN, LOW);
-      }
-    } else if (_tempState == STATE_HEATING) {
-      if (environmentData.temp > TEMP_TARGET) {
-        // Stop the heating
-        _lastTempStateChangeTime = currentTime;
-        _tempState = STATE_OFF;
-      }
-    } else {
-      // Have we waited long enough?
-      if (timeSinceLastTempActuation > MAX_SWITCH_RATE) {
-        // Do we need to cool?
-        if (environmentData.temp > TEMP_TARGET + TEMP_TOLERANCE) {
-          // We need to cool: turn on the refrigerator's compressor and make sure the lamps are off
-          digitalWrite (COOLING_PIN, HIGH);
-          _tempState = STATE_COOLING;
-          _lastTempStateChangeTime = currentTime;
-        } else if (environmentData.temp < TEMP_TARGET - TEMP_TOLERANCE) {
-          _tempState = STATE_HEATING;
-          _lastTempStateChangeTime = currentTime;
-        } else {
-          // We are still in a good range, do nothing
-        }
-      }
-    }
-    
-    
-    // Humidity check:
-    if (_humidityState == STATE_DEHUMIDIFYING) {
-      // Do we still need to be dehumidifying?
-      if (environmentData.humidity < HUMIDITY_TARGET) {
-        // Stop the humidifying
-        _lastHumidityStateChangeTime = currentTime;
-        _humidityState = STATE_OFF;
-        digitalWrite (DEHUMIDIFIER_PIN, LOW);
-      }
-    } else {
-      // Have we waited long enough?
-      if (timeSinceLastHumidityActuation > MAX_SWITCH_RATE) {
-        // Do we need to dehumidify?
-        if (environmentData.humidity > HUMIDITY_TARGET + HUMIDITY_TOLERANCE) {
-          // We need to dehumidify: turn on the dehumidifier
-          digitalWrite (DEHUMIDIFIER_PIN, HIGH);
-          _humidityState = STATE_DEHUMIDIFYING;
-          _lastHumidityStateChangeTime = currentTime;
-        } else {
-          // We are still in a good range, do nothing
-        }
-      }
-    }
-    
-    updateAverages (environmentData.temp, environmentData.humidity);
+
+    temperature.current = environmentData.temp;
+    humidity.current = environmentData.humidity;
+    updateState (temperature);
+    updateState (humidity);
+    updateAverages (temperature.current, humidity.current);
     
     // For now, print the averages every time (when they are valid):
     if (_averageTempLastHour > 0) {
@@ -254,6 +218,41 @@ DH22Reading readDH22 ()
   returnValue.temp = DHT.temperature;
   returnValue.humidity = DHT.humidity;
   return returnValue;
+}
+
+
+// An utterly naive bang-bang controller with a timeout to prevent too-frequent activations 
+void updateState (ControlledValue &variable)
+{
+  switch (variable.state) {
+    case NOT_CONTROLLING:
+      if (_runtimeInSeconds > variable.lastStateChangeTime+MAX_SWITCH_RATE) {
+        if (variable.current > variable.target + variable.tolerance) {
+          variable.lastStateChangeTime = _runtimeInSeconds;
+          variable.state = CONTROLLING_DOWN;
+          digitalWrite (variable.pinToDecrease, HIGH);
+        } else if (variable.current < variable.target - variable.tolerance) {
+          variable.lastStateChangeTime = _runtimeInSeconds;
+          variable.state = CONTROLLING_UP;
+          digitalWrite (variable.pinToIncrease, HIGH);
+        }
+      }
+      break;
+    case CONTROLLING_UP:
+      if (variable.current > variable.target) {
+        variable.lastStateChangeTime = _runtimeInSeconds;
+        variable.state = NOT_CONTROLLING;
+        digitalWrite (variable.pinToIncrease, LOW);
+      }
+      break;
+    case CONTROLLING_DOWN:
+      if (variable.current < variable.target) {
+        variable.lastStateChangeTime = _runtimeInSeconds;
+        variable.state = NOT_CONTROLLING;
+        digitalWrite (variable.pinToDecrease, LOW);
+      }
+      break;
+  }
 }
 
 
