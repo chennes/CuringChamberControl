@@ -3,11 +3,11 @@
 #define UINT32_MAX uint32_t(-1)
 
 // This is the program:
-#define TEMP_TARGET 15.0       // degrees C
-#define TEMP_TOLERANCE 1.5     // degrees C
-#define HUMIDITY_TARGET 65.0   // RH%
-#define HUMIDITY_TOLERANCE 5.0 // RH%
-#define MAX_SWITCH_RATE 60000 // Milliseconds (ten minutes)
+float TEMP_TARGET = 15.0;       // degrees C
+float TEMP_TOLERANCE = 1.5;     // degrees C
+float HUMIDITY_TARGET = 65.0;   // RH%
+float HUMIDITY_TOLERANCE = 5.0; // RH%
+uint32_t MAX_SWITCH_RATE = 60000; // Milliseconds (ten minutes)
 
 // Set up the sensor
 dht DHT;
@@ -67,6 +67,7 @@ float _averageCoolingOvershoot;
 DH22Reading readDH22 ();
 void getCurrentRuntime (int &days, int &hours, int &minutes, int &seconds);
 void updateAverages (float temp, float humidity);
+void printTime ();
 
 
 void setup() 
