@@ -150,9 +150,6 @@ void setup()
 
 void loop() 
 {
-  // Get the time since the last actuation. Be sure to handle time wraparound!!
-  uint32_t timeSinceLastTempActuation;
-  uint32_t timeSinceLastHumidityActuation;
   uint32_t currentTime = millis();
   if (currentTime < _lastCheckTime) {
     // Happens once every 50 days or so
