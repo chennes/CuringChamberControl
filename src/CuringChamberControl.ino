@@ -213,42 +213,52 @@ void loop()
 
     // LCD Display (16x2)
     //   0123456789012345
-    // 0 15.0°C 75%          <- Current data, always displayed
+    // 0 Now:  15.0°C 75%    <- Current data, always displayed
     // 1 Hour: 15.0°C 75%    <- Alt 1, daily average
     // 1 Day:  15.0°C 75%    <- Alt 2, weekly average
     // 1 Month:15.0°C 75%    <- Alt 3, monthly average
     
     lcd.setCursor(0,0);
+    lcd.print ("Now:  ");
+    lcd.setCursor(6,0);
     lcd.print (temperature.current);
-    lcd.setCursor(4,0);
-    lcd.write (176);
-    lcd.setCursor(5,0);
+    lcd.setCursor(10,0);
+    lcd.print ((char)223);
+    lcd.setCursor(11,0);
     lcd.print ("C ");
-    lcd.setCursor (7,0);
+    lcd.setCursor (13,0);
     lcd.print (humidity.current);
-    lcd.setCursor (9,0);
+    lcd.setCursor (15,0);
     lcd.print ("%      ");
 
     lcd.setCursor(0,1);
     switch (_lcdLine) {
-      case 0: 
-        lcd.print ("Hour: "); 
-        lcd.setCursor (6,1);
-        lcd.print (_averageTempLastHour);
-        lcd.setCursor (10,1);
-        lcd.write(176);
-        lcd.setCursor(11,1);
-        lcd.print (_averageHumidityLastHour);
-        lcd.setCursor(15,1);
-        lcd.write("%");
+      case 0:
+        if (_averageTempLastHour == 0) {
+          lcd.print ("No averages yet");
+        } else {
+          lcd.print ("Hour: "); 
+          lcd.setCursor (6,1);
+          lcd.print (_averageTempLastHour);
+          lcd.setCursor (10,1);
+          lcd.print ((char)223);
+          lcd.setCursor(11,1);
+          lcd.print ("C ");
+          lcd.setCursor (13,1);
+          lcd.print (_averageHumidityLastHour);
+          lcd.setCursor(15,1);
+          lcd.write("%");
+        }
         break;
       case 1: 
         lcd.print ("Week: "); 
         lcd.setCursor (6,1);
         lcd.print (_averageTempLastDay);
         lcd.setCursor (10,1);
-        lcd.write(176);
+        lcd.print ((char)223);
         lcd.setCursor(11,1);
+        lcd.print ("C ");
+        lcd.setCursor (13,1);
         lcd.print (_averageHumidityLastDay);
         lcd.setCursor(15,1);
         lcd.write("%");
@@ -258,8 +268,10 @@ void loop()
         lcd.setCursor (6,1);
         lcd.print (_averageTempLastMonth);
         lcd.setCursor (10,1);
-        lcd.write(176);
+        lcd.print ((char)223);
         lcd.setCursor(11,1);
+        lcd.print ("C ");
+        lcd.setCursor (13,1);
         lcd.print (_averageHumidityLastMonth);
         lcd.setCursor(15,1);
         lcd.write("%");
@@ -267,7 +279,11 @@ void loop()
     }
     _lcdLine++;
     _lcdLine = _lcdLine % 3;
-
+    if (_lcdLine == 1 && _averageTempLastDay == 0) {
+      _lcdLine = 0;
+    } else if (_lcdLine == 2 && _averageTempLastMonth == 0) {
+      _lcdLine = 0;
+    }
 
   } else {
     Serial.println ("ERROR: Cannot read from sensor!!");
