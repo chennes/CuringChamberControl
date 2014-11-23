@@ -1,4 +1,5 @@
 #include <dht.h> // For reading from the DHT22 Temperature/Humidity sensor
+#include <LiquidCrystal.h>
 
 // Expected Arduino Uno Pinout (All OUTPUT except pin 8):
 // 0  - None (Rx)
@@ -60,6 +61,7 @@ struct ControlledValue {
 
 ControlledValue temperature = {0, TEMP_TARGET, TEMP_TOLERANCE, 10, 9, 0, NOT_CONTROLLING };
 ControlledValue humidity = {0, HUMIDITY_TARGET, HUMIDITY_TOLERANCE, 11, 12, 0, NOT_CONTROLLING };
+LiquidCrystal lcd(2, 3, 4, 5, 6, 7);
 
 uint32_t _lastCheckTime;
 
@@ -84,6 +86,7 @@ float _averageHumidityLastHour;
 float _averageHumidityLastDay;
 float _averageHumidityLastMonth;
 float _averageCoolingOvershoot;
+unsigned int _lcdLine;
 
 
 // Forward declarations
@@ -125,6 +128,7 @@ void setup()
   _averageHumidityLastDay = 0;
   _averageHumidityLastMonth = 0;
   _averageCoolingOvershoot = 0.0;
+  _lcdLine = 0;
     
   pinMode(temperature.pinToIncrease, OUTPUT);
   pinMode(temperature.pinToDecrease, OUTPUT);
@@ -134,6 +138,8 @@ void setup()
   digitalWrite (temperature.pinToDecrease, LOW);
   digitalWrite (humidity.pinToIncrease, LOW);
   digitalWrite (humidity.pinToDecrease, LOW);
+
+  lcd.begin(16,2);
   
   Serial.begin(115200);
   Serial.println ("\n\tDay\tHour\tMin\tSec\tT\tRH\tCool\tDehum.\tRunning Averages");
@@ -201,8 +207,75 @@ void loop()
       }
     }
     Serial.println ();
+
+    // Update the LCD
+    lcd.clear();
+
+    // LCD Display (16x2)
+    //   0123456789012345
+    // 0 15.0°C 75%          <- Current data, always displayed
+    // 1 Hour: 15.0°C 75%    <- Alt 1, daily average
+    // 1 Day:  15.0°C 75%    <- Alt 2, weekly average
+    // 1 Month:15.0°C 75%    <- Alt 3, monthly average
+    
+    lcd.setCursor(0,0);
+    lcd.print (temperature.current);
+    lcd.setCursor(4,0);
+    lcd.write (176);
+    lcd.setCursor(5,0);
+    lcd.print ("C ");
+    lcd.setCursor (7,0);
+    lcd.print (humidity.current);
+    lcd.setCursor (9,0);
+    lcd.print ("%      ");
+
+    lcd.setCursor(0,1);
+    switch (_lcdLine) {
+      case 0: 
+        lcd.print ("Hour: "); 
+        lcd.setCursor (6,1);
+        lcd.print (_averageTempLastHour);
+        lcd.setCursor (10,1);
+        lcd.write(176);
+        lcd.setCursor(11,1);
+        lcd.print (_averageHumidityLastHour);
+        lcd.setCursor(15,1);
+        lcd.write("%");
+        break;
+      case 1: 
+        lcd.print ("Week: "); 
+        lcd.setCursor (6,1);
+        lcd.print (_averageTempLastDay);
+        lcd.setCursor (10,1);
+        lcd.write(176);
+        lcd.setCursor(11,1);
+        lcd.print (_averageHumidityLastDay);
+        lcd.setCursor(15,1);
+        lcd.write("%");
+        break;
+      case 2: 
+        lcd.print ("Month:"); 
+        lcd.setCursor (6,1);
+        lcd.print (_averageTempLastMonth);
+        lcd.setCursor (10,1);
+        lcd.write(176);
+        lcd.setCursor(11,1);
+        lcd.print (_averageHumidityLastMonth);
+        lcd.setCursor(15,1);
+        lcd.write("%");
+        break;
+    }
+    _lcdLine++;
+    _lcdLine = _lcdLine % 3;
+
+
   } else {
     Serial.println ("ERROR: Cannot read from sensor!!");
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print ("ERROR");
+    lcd.setCursor(0,1);
+    lcd.print ("Bad sensor value");
   }
 
   delay (pollRate);
